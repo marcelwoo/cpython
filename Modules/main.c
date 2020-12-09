@@ -287,7 +287,11 @@ pymain_run_module(const wchar_t *modname, int set_argv0)
         Py_DECREF(module);
         return pymain_exit_err_print();
     }
+    _Py_UnhandledKeyboardInterrupt = 0;
     result = PyObject_Call(runmodule, runargs, NULL);
+    if (!result && PyErr_Occurred() == PyExc_KeyboardInterrupt) {
+        _Py_UnhandledKeyboardInterrupt = 1;
+    }
     Py_DECREF(runpy);
     Py_DECREF(runmodule);
     Py_DECREF(module);
@@ -375,29 +379,57 @@ pymain_run_file(const PyConfig *config, PyCompilerFlags *cf)
 static int
 pymain_run_startup(PyConfig *config, PyCompilerFlags *cf, int *exitcode)
 {
-    const char *startup = _Py_GetEnv(config->use_environment, "PYTHONSTARTUP");
-    if (startup == NULL) {
+    int ret;
+    if (!config->use_environment) {
         return 0;
     }
-    if (PySys_Audit("cpython.run_startup", "s", startup) < 0) {
-        return pymain_err_print(exitcode);
+    PyObject *startup = NULL;
+#ifdef MS_WINDOWS
+    const wchar_t *env = _wgetenv(L"PYTHONSTARTUP");
+    if (env == NULL || env[0] == L'\0') {
+        return 0;
+    }
+    startup = PyUnicode_FromWideChar(env, wcslen(env));
+    if (startup == NULL) {
+        goto error;
+    }
+#else
+    const char *env = _Py_GetEnv(config->use_environment, "PYTHONSTARTUP");
+    if (env == NULL) {
+        return 0;
+    }
+    startup = PyUnicode_DecodeFSDefault(env);
+    if (startup == NULL) {
+        goto error;
+    }
+#endif
+    if (PySys_Audit("cpython.run_startup", "O", startup) < 0) {
+        goto error;
     }
 
-    FILE *fp = _Py_fopen(startup, "r");
+    FILE *fp = _Py_fopen_obj(startup, "r");
     if (fp == NULL) {
         int save_errno = errno;
+        PyErr_Clear();
         PySys_WriteStderr("Could not open PYTHONSTARTUP\n");
 
         errno = save_errno;
-        PyErr_SetFromErrnoWithFilename(PyExc_OSError, startup);
-
-        return pymain_err_print(exitcode);
+        PyErr_SetFromErrnoWithFilenameObjects(PyExc_OSError, startup, NULL);
+        goto error;
     }
 
-    (void) PyRun_SimpleFileExFlags(fp, startup, 0, cf);
+    (void) _PyRun_SimpleFileObject(fp, startup, 0, cf);
     PyErr_Clear();
     fclose(fp);
-    return 0;
+    ret = 0;
+
+done:
+    Py_XDECREF(startup);
+    return ret;
+
+error:
+    ret = pymain_err_print(exitcode);
+    goto done;
 }
 
 

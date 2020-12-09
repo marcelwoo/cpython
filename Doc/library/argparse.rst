@@ -696,7 +696,7 @@ The add_argument() method
    * const_ - A constant value required by some action_ and nargs_ selections.
 
    * default_ - The value produced if the argument is absent from the
-     command line.
+     command line and if it is absent from the namespace object.
 
    * type_ - The type to which the command-line argument should be converted.
 
@@ -961,19 +961,6 @@ values are:
      usage: PROG [-h] foo [foo ...]
      PROG: error: the following arguments are required: foo
 
-.. _`argparse.REMAINDER`:
-
-* ``argparse.REMAINDER``.  All the remaining command-line arguments are gathered
-  into a list.  This is commonly useful for command line utilities that dispatch
-  to other command line utilities::
-
-     >>> parser = argparse.ArgumentParser(prog='PROG')
-     >>> parser.add_argument('--foo')
-     >>> parser.add_argument('command')
-     >>> parser.add_argument('args', nargs=argparse.REMAINDER)
-     >>> print(parser.parse_args('--foo B cmd --arg1 XX ZZ'.split()))
-     Namespace(args=['--arg1', 'XX', 'ZZ'], command='cmd', foo='B')
-
 If the ``nargs`` keyword argument is not provided, the number of arguments consumed
 is determined by the action_.  Generally this means a single command-line argument
 will be consumed and a single item (not a list) will be produced.
@@ -1018,6 +1005,14 @@ was not present at the command line::
    Namespace(foo='2')
    >>> parser.parse_args([])
    Namespace(foo=42)
+
+If the target namespace already has an attribute set, the action *default*
+will not over write it::
+
+   >>> parser = argparse.ArgumentParser()
+   >>> parser.add_argument('--foo', default=42)
+   >>> parser.parse_args([], namespace=argparse.Namespace(foo=101))
+   Namespace(foo=101)
 
 If the ``default`` value is a string, the parser parses the value as if it
 were a command-line argument.  In particular, the parser applies any type_
@@ -1147,6 +1142,9 @@ container should match the type_ specified::
 Any container can be passed as the *choices* value, so :class:`list` objects,
 :class:`set` objects, and custom containers are all supported.
 
+Use of :class:`enum.Enum` is not recommended because it is difficult to
+control its appearance in usage, help, and error messages.
+
 
 required
 ^^^^^^^^
@@ -1161,8 +1159,8 @@ keyword argument to :meth:`~ArgumentParser.add_argument`::
    >>> parser.parse_args(['--foo', 'BAR'])
    Namespace(foo='BAR')
    >>> parser.parse_args([])
-   usage: argparse.py [-h] [--foo FOO]
-   argparse.py: error: option --foo is required
+   usage: [-h] --foo FOO
+   : error: the following arguments are required: --foo
 
 As the example shows, if an option is marked as ``required``,
 :meth:`~ArgumentParser.parse_args` will report an error if that option is not

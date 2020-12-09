@@ -45,6 +45,7 @@ import sys
 import tokenize
 import token
 import types
+import typing
 import warnings
 import functools
 import builtins
@@ -706,10 +707,13 @@ def getsourcefile(object):
     if os.path.exists(filename):
         return filename
     # only return a non-existent filename if the module has a PEP 302 loader
-    if getattr(getmodule(object, filename), '__loader__', None) is not None:
+    module = getmodule(object, filename)
+    if getattr(module, '__loader__', None) is not None:
+        return filename
+    elif getattr(getattr(module, "__spec__", None), "loader", None) is not None:
         return filename
     # or it is in the linecache
-    if filename in linecache.cache:
+    elif filename in linecache.cache:
         return filename
 
 def getabsfile(object, _filename=None):
@@ -864,7 +868,12 @@ def findsource(object):
         lnum = object.co_firstlineno - 1
         pat = re.compile(r'^(\s*def\s)|(\s*async\s+def\s)|(.*(?<!\w)lambda(:|\s))|^(\s*@)')
         while lnum > 0:
-            if pat.match(lines[lnum]): break
+            try:
+                line = lines[lnum]
+            except IndexError:
+                raise OSError('lineno is out of bounds')
+            if pat.match(line):
+                break
             lnum = lnum - 1
         return lines, lnum
     raise OSError('could not find code object')
@@ -926,6 +935,7 @@ class BlockFinder:
         self.indecorator = False
         self.decoratorhasargs = False
         self.last = 1
+        self.body_col0 = None
 
     def tokeneater(self, type, token, srowcol, erowcol, line):
         if not self.started and not self.indecorator:
@@ -957,6 +967,8 @@ class BlockFinder:
         elif self.passline:
             pass
         elif type == tokenize.INDENT:
+            if self.body_col0 is None and self.started:
+                self.body_col0 = erowcol[1]
             self.indent = self.indent + 1
             self.passline = True
         elif type == tokenize.DEDENT:
@@ -966,6 +978,10 @@ class BlockFinder:
             #  not e.g. for "if: else:" or "try: finally:" blocks)
             if self.indent <= 0:
                 raise EndOfBlock
+        elif type == tokenize.COMMENT:
+            if self.body_col0 is not None and srowcol[1] >= self.body_col0:
+                # Include comments if indented at least as much as the block
+                self.last = srowcol[0]
         elif self.indent == 0 and type not in (tokenize.COMMENT, tokenize.NL):
             # any other token on the same indentation level end the previous
             # block as well, except the pseudo-tokens COMMENT and NL.
@@ -1877,7 +1893,10 @@ def _signature_is_functionlike(obj):
     code = getattr(obj, '__code__', None)
     defaults = getattr(obj, '__defaults__', _void) # Important to use _void ...
     kwdefaults = getattr(obj, '__kwdefaults__', _void) # ... and not None here
-    annotations = getattr(obj, '__annotations__', None)
+    try:
+        annotations = _get_type_hints(obj)
+    except AttributeError:
+        annotations = None
 
     return (isinstance(code, types.CodeType) and
             isinstance(name, str) and
@@ -2118,6 +2137,16 @@ def _signature_fromstr(cls, obj, s, skip_bound_arg=True):
 
     return cls(parameters, return_annotation=cls.empty)
 
+def _get_type_hints(func):
+    try:
+        return typing.get_type_hints(func)
+    except Exception:
+        # First, try to use the get_type_hints to resolve
+        # annotations. But for keeping the behavior intact
+        # if there was a problem with that (like the namespace
+        # can't resolve some annotation) continue to use
+        # string annotations
+        return func.__annotations__
 
 def _signature_from_builtin(cls, func, skip_bound_arg=True):
     """Private helper function to get signature for
@@ -2161,7 +2190,8 @@ def _signature_from_function(cls, func, skip_bound_arg=True):
     positional = arg_names[:pos_count]
     keyword_only_count = func_code.co_kwonlyargcount
     keyword_only = arg_names[pos_count:pos_count + keyword_only_count]
-    annotations = func.__annotations__
+    annotations = _get_type_hints(func)
+
     defaults = func.__defaults__
     kwdefaults = func.__kwdefaults__
 

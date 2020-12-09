@@ -1,6 +1,8 @@
 #include "Python.h"
+#include "pycore_long.h"          // _PyLong_GetZero()
+#include "pycore_object.h"        // _PyObject_GC_TRACK
 #include "pycore_pystate.h"       // _PyThreadState_GET()
-#include "pycore_tupleobject.h"
+#include "pycore_tuple.h"         // _PyTuple_ITEMS()
 #include "structmember.h"         // PyMemberDef
 
 /* _functools module written and maintained
@@ -477,15 +479,14 @@ keyobject_dealloc(keyobject *ko)
 {
     Py_DECREF(ko->cmp);
     Py_XDECREF(ko->object);
-    PyObject_FREE(ko);
+    PyObject_Free(ko);
 }
 
 static int
 keyobject_traverse(keyobject *ko, visitproc visit, void *arg)
 {
     Py_VISIT(ko->cmp);
-    if (ko->object)
-        Py_VISIT(ko->object);
+    Py_VISIT(ko->object);
     return 0;
 }
 
@@ -597,7 +598,7 @@ keyobject_richcompare(PyObject *ko, PyObject *other, int op)
         return NULL;
     }
 
-    answer = PyObject_RichCompare(res, _PyLong_Zero, op);
+    answer = PyObject_RichCompare(res, _PyLong_GetZero(), op);
     Py_DECREF(res);
     return answer;
 }
@@ -673,6 +674,11 @@ functools_reduce(PyObject *self, PyObject *args)
             if ((result = PyObject_Call(func, args, NULL)) == NULL) {
                 goto Fail;
             }
+            // bpo-42536: The GC may have untracked this args tuple. Since we're
+            // recycling it, make sure it's tracked again:
+            if (!_PyObject_GC_IS_TRACKED(args)) {
+                _PyObject_GC_TRACK(args);
+            }
         }
     }
 
@@ -680,7 +686,7 @@ functools_reduce(PyObject *self, PyObject *args)
 
     if (result == NULL)
         PyErr_SetString(PyExc_TypeError,
-                   "reduce() of empty sequence with no initial value");
+                   "reduce() of empty iterable with no initial value");
 
     Py_DECREF(it);
     return result;
@@ -693,14 +699,14 @@ Fail:
 }
 
 PyDoc_STRVAR(functools_reduce_doc,
-"reduce(function, sequence[, initial]) -> value\n\
+"reduce(function, iterable[, initial]) -> value\n\
 \n\
-Apply a function of two arguments cumulatively to the items of a sequence,\n\
-from left to right, so as to reduce the sequence to a single value.\n\
-For example, reduce(lambda x, y: x+y, [1, 2, 3, 4, 5]) calculates\n\
+Apply a function of two arguments cumulatively to the items of a sequence\n\
+or iterable, from left to right, so as to reduce the iterable to a single\n\
+value.  For example, reduce(lambda x, y: x+y, [1, 2, 3, 4, 5]) calculates\n\
 ((((1+2)+3)+4)+5).  If initial is present, it is placed before the items\n\
-of the sequence in the calculation, and serves as a default when the\n\
-sequence is empty.");
+of the iterable in the calculation, and serves as a default when the\n\
+iterable is empty.");
 
 /* lru_cache object **********************************************************/
 
@@ -742,7 +748,7 @@ lru_list_elem_dealloc(lru_list_elem *link)
 {
     Py_XDECREF(link->key);
     Py_XDECREF(link->result);
-    PyObject_Del(link);
+    PyObject_Free(link);
 }
 
 static PyTypeObject lru_list_elem_type = {

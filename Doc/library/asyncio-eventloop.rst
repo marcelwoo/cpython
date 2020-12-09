@@ -191,8 +191,8 @@ Scheduling callbacks
 
 .. method:: loop.call_soon(callback, *args, context=None)
 
-   Schedule a *callback* to be called with *args* arguments at
-   the next iteration of the event loop.
+   Schedule the *callback* :term:`callback` to be called with
+   *args* arguments at the next iteration of the event loop.
 
    Callbacks are called in the order in which they are registered.
    Each callback will be called exactly once.
@@ -1184,10 +1184,13 @@ Allows customizing how exceptions are handled in the event loop.
    * 'message': Error message;
    * 'exception' (optional): Exception object;
    * 'future' (optional): :class:`asyncio.Future` instance;
+   * 'task' (optional): :class:`asyncio.Task` instance;
    * 'handle' (optional): :class:`asyncio.Handle` instance;
    * 'protocol' (optional): :ref:`Protocol <asyncio-protocol>` instance;
    * 'transport' (optional): :ref:`Transport <asyncio-transport>` instance;
-   * 'socket' (optional): :class:`socket.socket` instance.
+   * 'socket' (optional): :class:`socket.socket` instance;
+   * 'asyncgen' (optional): Asynchronous generator that caused
+                            the exception.
 
    .. note::
 

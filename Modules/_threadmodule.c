@@ -34,7 +34,7 @@ lock_dealloc(lockobject *self)
             PyThread_release_lock(self->lock_lock);
         PyThread_free_lock(self->lock_lock);
     }
-    PyObject_Del(self);
+    PyObject_Free(self);
 }
 
 /* Helper to acquire an interruptible lock with a timeout.  If the lock acquire
@@ -816,9 +816,13 @@ local_clear(localobject *self)
         for(tstate = PyInterpreterState_ThreadHead(tstate->interp);
             tstate;
             tstate = PyThreadState_Next(tstate))
-            if (tstate->dict && PyDict_GetItem(tstate->dict, self->key)) {
-                if (PyDict_DelItem(tstate->dict, self->key)) {
+            if (tstate->dict) {
+                PyObject *v = _PyDict_Pop(tstate->dict, self->key, Py_None);
+                if (v == NULL) {
                     PyErr_Clear();
+                }
+                else {
+                    Py_DECREF(v);
                 }
             }
     }
@@ -1052,7 +1056,7 @@ t_bootstrap(void *boot_raw)
     Py_DECREF(boot->func);
     Py_DECREF(boot->args);
     Py_XDECREF(boot->keyw);
-    PyMem_DEL(boot_raw);
+    PyMem_Free(boot_raw);
     tstate->interp->num_threads--;
     PyThreadState_Clear(tstate);
     _PyThreadState_DeleteCurrent(tstate);
@@ -1103,7 +1107,7 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
     boot->tstate = _PyThreadState_Prealloc(boot->interp);
     boot->runtime = runtime;
     if (boot->tstate == NULL) {
-        PyMem_DEL(boot);
+        PyMem_Free(boot);
         return PyErr_NoMemory();
     }
     Py_INCREF(func);
@@ -1117,7 +1121,7 @@ thread_PyThread_start_new_thread(PyObject *self, PyObject *fargs)
         Py_DECREF(args);
         Py_XDECREF(keyw);
         PyThreadState_Clear(boot->tstate);
-        PyMem_DEL(boot);
+        PyMem_Free(boot);
         return NULL;
     }
     return PyLong_FromUnsignedLong(ident);

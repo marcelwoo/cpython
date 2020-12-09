@@ -5,11 +5,12 @@ import sys
 import unittest
 import threading
 from collections import OrderedDict
-from enum import Enum, IntEnum, EnumMeta, Flag, IntFlag, unique, auto
+from enum import Enum, IntEnum, StrEnum, EnumMeta, Flag, IntFlag, unique, auto
 from io import StringIO
 from pickle import dumps, loads, PicklingError, HIGHEST_PROTOCOL
 from test import support
 from test.support import ALWAYS_EQ
+from test.support import threading_helper
 from datetime import timedelta
 
 
@@ -47,14 +48,9 @@ except Exception as exc:
     FlagStooges = exc
 
 # for pickle test and subclass tests
-try:
-    class StrEnum(str, Enum):
-        'accepts only string values'
-    class Name(StrEnum):
-        BDFL = 'Guido van Rossum'
-        FLUFL = 'Barry Warsaw'
-except Exception as exc:
-    Name = exc
+class Name(StrEnum):
+    BDFL = 'Guido van Rossum'
+    FLUFL = 'Barry Warsaw'
 
 try:
     Question = Enum('Question', 'who what when where why', module=__name__)
@@ -214,6 +210,18 @@ class TestEnum(unittest.TestCase):
                 set(dir(SubEnum.sample)),
                 set(['__class__', '__doc__', '__module__', 'name', 'value', 'invisible']),
                 )
+
+    def test_dir_on_sub_with_behavior_including_instance_dict_on_super(self):
+        # see issue40084
+        class SuperEnum(IntEnum):
+            def __new__(cls, value, description=""):
+                obj = int.__new__(cls, value)
+                obj._value_ = value
+                obj.description = description
+                return obj
+        class SubEnum(SuperEnum):
+            sample = 5
+        self.assertTrue({'description'} <= set(dir(SubEnum.sample)))
 
     def test_enum_in_enum_out(self):
         Season = self.Season
@@ -418,6 +426,13 @@ class TestEnum(unittest.TestCase):
                 green = 2
                 blue = 3
 
+    def test_reserved__sunder_(self):
+        with self.assertRaisesRegex(
+                ValueError,
+                "_sunder_ names, such as '_bad_', are reserved",
+            ):
+            class Bad(Enum):
+                _bad_ = 1
 
     def test_enum_with_value_name(self):
         class Huh(Enum):
@@ -552,6 +567,59 @@ class TestEnum(unittest.TestCase):
         self.assertFormatIsValue('{:>20}', Directional.WEST)
         self.assertFormatIsValue('{:<20}', Directional.WEST)
 
+    def test_object_str_override(self):
+        class Colors(Enum):
+            RED, GREEN, BLUE = 1, 2, 3
+            def __repr__(self):
+                return "test.%s" % (self._name_, )
+            __str__ = object.__str__
+        self.assertEqual(str(Colors.RED), 'test.RED')
+
+    def test_enum_str_override(self):
+        class MyStrEnum(Enum):
+            def __str__(self):
+                return 'MyStr'
+        class MyMethodEnum(Enum):
+            def hello(self):
+                return 'Hello!  My name is %s' % self.name
+        class Test1Enum(MyMethodEnum, int, MyStrEnum):
+            One = 1
+            Two = 2
+        self.assertTrue(Test1Enum._member_type_ is int)
+        self.assertEqual(str(Test1Enum.One), 'MyStr')
+        self.assertEqual(format(Test1Enum.One, ''), 'MyStr')
+        #
+        class Test2Enum(MyStrEnum, MyMethodEnum):
+            One = 1
+            Two = 2
+        self.assertEqual(str(Test2Enum.One), 'MyStr')
+        self.assertEqual(format(Test1Enum.One, ''), 'MyStr')
+
+    def test_inherited_data_type(self):
+        class HexInt(int):
+            def __repr__(self):
+                return hex(self)
+        class MyEnum(HexInt, enum.Enum):
+            A = 1
+            B = 2
+            C = 3
+        self.assertEqual(repr(MyEnum.A), '<MyEnum.A: 0x1>')
+
+    def test_too_many_data_types(self):
+        with self.assertRaisesRegex(TypeError, 'too many data types'):
+            class Huh(str, int, Enum):
+                One = 1
+
+        class MyStr(str):
+            def hello(self):
+                return 'hello, %s' % self
+        class MyInt(int):
+            def repr(self):
+                return hex(self)
+        with self.assertRaisesRegex(TypeError, 'too many data types'):
+            class Huh(MyStr, MyInt, Enum):
+                One = 1
+
     def test_hash(self):
         Season = self.Season
         dates = {}
@@ -595,14 +663,13 @@ class TestEnum(unittest.TestCase):
             tau = 'Tau'
         self.assertTrue(phy.pi < phy.tau)
 
-    def test_strenum_inherited(self):
-        class StrEnum(str, Enum):
-            pass
+    def test_strenum_inherited_methods(self):
         class phy(StrEnum):
             pi = 'Pi'
             tau = 'Tau'
         self.assertTrue(phy.pi < phy.tau)
-
+        self.assertEqual(phy.pi.upper(), 'PI')
+        self.assertEqual(phy.tau.count('a'), 1)
 
     def test_intenum(self):
         class WeekDay(IntEnum):
@@ -951,6 +1018,9 @@ class TestEnum(unittest.TestCase):
                 cyan = 4
                 magenta = 5
                 yellow = 6
+        with self.assertRaisesRegex(TypeError, "EvenMoreColor: cannot extend enumeration 'Color'"):
+            class EvenMoreColor(Color, IntEnum):
+                chartruese = 7
 
     def test_exclude_methods(self):
         class whatever(Enum):
@@ -1130,9 +1200,11 @@ class TestEnum(unittest.TestCase):
                 return self._intname
             def __repr__(self):
                 # repr() is updated to include the name and type info
-                return "{}({!r}, {})".format(type(self).__name__,
-                                             self.__name__,
-                                             int.__repr__(self))
+                return "{}({!r}, {})".format(
+                        type(self).__name__,
+                        self.__name__,
+                        int.__repr__(self),
+                        )
             def __str__(self):
                 # str() is unchanged, even if it relies on the repr() fallback
                 base = int
@@ -1147,7 +1219,8 @@ class TestEnum(unittest.TestCase):
                 if isinstance(self, NamedInt) and isinstance(other, NamedInt):
                     return NamedInt(
                         '({0} + {1})'.format(self.__name__, other.__name__),
-                        temp )
+                        temp,
+                        )
                 else:
                     return temp
 
@@ -1187,9 +1260,11 @@ class TestEnum(unittest.TestCase):
                 return self._intname
             def __repr__(self):
                 # repr() is updated to include the name and type info
-                return "{}({!r}, {})".format(type(self).__name__,
-                                             self.__name__,
-                                             int.__repr__(self))
+                return "{}({!r}, {})".format(
+                        type(self).__name__,
+                        self.__name__,
+                        int.__repr__(self),
+                        )
             def __str__(self):
                 # str() is unchanged, even if it relies on the repr() fallback
                 base = int
@@ -1204,7 +1279,8 @@ class TestEnum(unittest.TestCase):
                 if isinstance(self, NamedInt) and isinstance(other, NamedInt):
                     return NamedInt(
                         '({0} + {1})'.format(self.__name__, other.__name__),
-                        temp )
+                        temp,
+                        )
                 else:
                     return temp
 
@@ -1244,9 +1320,11 @@ class TestEnum(unittest.TestCase):
                 return self._intname
             def __repr__(self):
                 # repr() is updated to include the name and type info
-                return "{}({!r}, {})".format(type(self).__name__,
-                                             self.__name__,
-                                             int.__repr__(self))
+                return "{}({!r}, {})".format(
+                        type(self).__name__,
+                        self.__name__,
+                        int.__repr__(self),
+                        )
             def __str__(self):
                 # str() is unchanged, even if it relies on the repr() fallback
                 base = int
@@ -1261,7 +1339,8 @@ class TestEnum(unittest.TestCase):
                 if isinstance(self, NamedInt) and isinstance(other, NamedInt):
                     return NamedInt(
                         '({0} + {1})'.format(self.__name__, other.__name__),
-                        temp )
+                        temp,
+                        )
                 else:
                     return temp
 
@@ -1301,9 +1380,11 @@ class TestEnum(unittest.TestCase):
                 return self._intname
             def __repr__(self):
                 # repr() is updated to include the name and type info
-                return "{}({!r}, {})".format(type(self).__name__,
-                                             self.__name__,
-                                             int.__repr__(self))
+                return "{}({!r}, {})".format(
+                        type(self).__name__,
+                        self.__name__,
+                        int.__repr__(self),
+                        )
             def __str__(self):
                 # str() is unchanged, even if it relies on the repr() fallback
                 base = int
@@ -1318,7 +1399,8 @@ class TestEnum(unittest.TestCase):
                 if isinstance(self, NamedInt) and isinstance(other, NamedInt):
                     return NamedInt(
                         '({0} + {1})'.format(self.__name__, other.__name__),
-                        temp )
+                        temp,
+                        )
                 else:
                     return temp
 
@@ -1326,7 +1408,6 @@ class TestEnum(unittest.TestCase):
             __qualname__ = 'NEI'      # needed for pickle protocol 4
             x = ('the-x', 1)
             y = ('the-y', 2)
-
 
         self.assertIs(NEI.__new__, Enum.__new__)
         self.assertEqual(repr(NEI.x + NEI.y), "NamedInt('(the-x + the-y)', 3)")
@@ -1356,9 +1437,11 @@ class TestEnum(unittest.TestCase):
                 return self._intname
             def __repr__(self):
                 # repr() is updated to include the name and type info
-                return "{}({!r}, {})".format(type(self).__name__,
-                                             self.__name__,
-                                             int.__repr__(self))
+                return "{}({!r}, {})".format(
+                        type(self).__name__,
+                        self.__name__,
+                        int.__repr__(self),
+                        )
             def __str__(self):
                 # str() is unchanged, even if it relies on the repr() fallback
                 base = int
@@ -1409,9 +1492,11 @@ class TestEnum(unittest.TestCase):
                 return self._intname
             def __repr__(self):
                 # repr() is updated to include the name and type info
-                return "{}({!r}, {})".format(type(self).__name__,
-                                             self.__name__,
-                                             int.__repr__(self))
+                return "{}({!r}, {})".format(
+                        type(self).__name__,
+                        self.__name__,
+                        int.__repr__(self),
+                        )
             def __str__(self):
                 # str() is unchanged, even if it relies on the repr() fallback
                 base = int
@@ -1426,7 +1511,8 @@ class TestEnum(unittest.TestCase):
                 if isinstance(self, NamedInt) and isinstance(other, NamedInt):
                     return NamedInt(
                         '({0} + {1})'.format(self.__name__, other.__name__),
-                        temp )
+                        temp,
+                        )
                 else:
                     return temp
 
@@ -1760,6 +1846,17 @@ class TestEnum(unittest.TestCase):
                 def _generate_next_value_(name, start, count, last):
                     return name
 
+    def test_auto_order_wierd(self):
+        weird_auto = auto()
+        weird_auto.value = 'pathological case'
+        class Color(Enum):
+            red = weird_auto
+            def _generate_next_value_(name, start, count, last):
+                return name
+            blue = auto()
+        self.assertEqual(list(Color), [Color.red, Color.blue])
+        self.assertEqual(Color.red.value, 'pathological case')
+        self.assertEqual(Color.blue.value, 'blue')
 
     def test_duplicate_auto(self):
         class Dupes(Enum):
@@ -1767,6 +1864,18 @@ class TestEnum(unittest.TestCase):
             second = auto()
             third = auto()
         self.assertEqual([Dupes.first, Dupes.second, Dupes.third], list(Dupes))
+
+    def test_default_missing(self):
+        class Color(Enum):
+            RED = 1
+            GREEN = 2
+            BLUE = 3
+        try:
+            Color(7)
+        except ValueError as exc:
+            self.assertTrue(exc.__context__ is None)
+        else:
+            raise Exception('Exception not raised.')
 
     def test_missing(self):
         class Color(Enum):
@@ -1786,7 +1895,12 @@ class TestEnum(unittest.TestCase):
                     # trigger not found
                     return None
         self.assertIs(Color('three'), Color.blue)
-        self.assertRaises(ValueError, Color, 7)
+        try:
+            Color(7)
+        except ValueError as exc:
+            self.assertTrue(exc.__context__ is None)
+        else:
+            raise Exception('Exception not raised.')
         try:
             Color('bad return')
         except TypeError as exc:
@@ -1897,13 +2011,6 @@ class TestEnum(unittest.TestCase):
         self.assertTrue(issubclass(ReformedColor, int))
 
     def test_multiple_inherited_mixin(self):
-        class StrEnum(str, Enum):
-            def __new__(cls, *args, **kwargs):
-                for a in args:
-                    if not isinstance(a, str):
-                        raise TypeError("Enumeration '%s' (%s) is not"
-                                        " a string" % (a, type(a).__name__))
-                return str.__new__(cls, *args, **kwargs)
         @unique
         class Decision1(StrEnum):
             REVERT = "REVERT"
@@ -1917,6 +2024,32 @@ class TestEnum(unittest.TestCase):
             REVERT_ALL = "REVERT_ALL"
             RETRY = "RETRY"
 
+    def test_multiple_mixin_inherited(self):
+        class MyInt(int):
+            def __new__(cls, value):
+                return super().__new__(cls, value)
+
+        class HexMixin:
+            def __repr__(self):
+                return hex(self)
+
+        class MyIntEnum(HexMixin, MyInt, enum.Enum):
+            pass
+
+        class Foo(MyIntEnum):
+            TEST = 1
+        self.assertTrue(isinstance(Foo.TEST, MyInt))
+        self.assertEqual(repr(Foo.TEST), "0x1")
+
+        class Fee(MyIntEnum):
+            TEST = 1
+            def __new__(cls, value):
+                value += 1
+                member = int.__new__(cls, value)
+                member._value_ = value
+                return member
+        self.assertEqual(Fee.TEST, 2)
+
     def test_empty_globals(self):
         # bpo-35717: sys._getframe(2).f_globals['__name__'] fails with KeyError
         # when using compile and exec because f_globals is empty
@@ -1926,6 +2059,64 @@ class TestEnum(unittest.TestCase):
         local_ls = {}
         exec(code, global_ns, local_ls)
 
+    def test_strenum(self):
+        class GoodStrEnum(StrEnum):
+            one = '1'
+            two = '2'
+            three = b'3', 'ascii'
+            four = b'4', 'latin1', 'strict'
+        self.assertEqual(GoodStrEnum.one, '1')
+        self.assertEqual(str(GoodStrEnum.one), '1')
+        self.assertEqual(GoodStrEnum.one, str(GoodStrEnum.one))
+        self.assertEqual(GoodStrEnum.one, '{}'.format(GoodStrEnum.one))
+        #
+        class DumbMixin:
+            def __str__(self):
+                return "don't do this"
+        class DumbStrEnum(DumbMixin, StrEnum):
+            five = '5'
+            six = '6'
+            seven = '7'
+        self.assertEqual(DumbStrEnum.seven, '7')
+        self.assertEqual(str(DumbStrEnum.seven), "don't do this")
+        #
+        class EnumMixin(Enum):
+            def hello(self):
+                print('hello from %s' % (self, ))
+        class HelloEnum(EnumMixin, StrEnum):
+            eight = '8'
+        self.assertEqual(HelloEnum.eight, '8')
+        self.assertEqual(HelloEnum.eight, str(HelloEnum.eight))
+        #
+        class GoodbyeMixin:
+            def goodbye(self):
+                print('%s wishes you a fond farewell')
+        class GoodbyeEnum(GoodbyeMixin, EnumMixin, StrEnum):
+            nine = '9'
+        self.assertEqual(GoodbyeEnum.nine, '9')
+        self.assertEqual(GoodbyeEnum.nine, str(GoodbyeEnum.nine))
+        #
+        with self.assertRaisesRegex(TypeError, '1 is not a string'):
+            class FirstFailedStrEnum(StrEnum):
+                one = 1
+                two = '2'
+        with self.assertRaisesRegex(TypeError, "2 is not a string"):
+            class SecondFailedStrEnum(StrEnum):
+                one = '1'
+                two = 2,
+                three = '3'
+        with self.assertRaisesRegex(TypeError, '2 is not a string'):
+            class ThirdFailedStrEnum(StrEnum):
+                one = '1'
+                two = 2
+        with self.assertRaisesRegex(TypeError, 'encoding must be a string, not %r' % (sys.getdefaultencoding, )):
+            class ThirdFailedStrEnum(StrEnum):
+                one = '1'
+                two = b'2', sys.getdefaultencoding
+        with self.assertRaisesRegex(TypeError, 'errors must be a string, not 9'):
+            class ThirdFailedStrEnum(StrEnum):
+                one = '1'
+                two = b'2', 'ascii', 9
 
 class TestOrder(unittest.TestCase):
 
@@ -2062,6 +2253,11 @@ class TestFlag(unittest.TestCase):
         self.assertEqual(repr(~Open.AC), '<Open.CE: 524288>')
         self.assertEqual(repr(~(Open.RO | Open.CE)), '<Open.AC: 3>')
         self.assertEqual(repr(~(Open.WO | Open.CE)), '<Open.RW: 2>')
+
+    def test_format(self):
+        Perm = self.Perm
+        self.assertEqual(format(Perm.R, ''), 'Perm.R')
+        self.assertEqual(format(Perm.R | Perm.X, ''), 'Perm.R|X')
 
     def test_or(self):
         Perm = self.Perm
@@ -2245,6 +2441,12 @@ class TestFlag(unittest.TestCase):
         self.assertFalse(W in RX)
         self.assertFalse(X in RW)
 
+    def test_member_iter(self):
+        Color = self.Color
+        self.assertEqual(list(Color.PURPLE), [Color.BLUE, Color.RED])
+        self.assertEqual(list(Color.BLUE), [Color.BLUE])
+        self.assertEqual(list(Color.GREEN), [Color.GREEN])
+
     def test_auto_number(self):
         class Color(Flag):
             red = auto()
@@ -2333,7 +2535,7 @@ class TestFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @support.reap_threads
+    @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
         class TestFlag(Flag):
@@ -2363,7 +2565,7 @@ class TestFlag(unittest.TestCase):
                 threading.Thread(target=cycle_enum)
                 for _ in range(8)
                 ]
-        with support.start_threads(threads):
+        with threading_helper.start_threads(threads):
             pass
         # check that only 248 members were created
         self.assertFalse(
@@ -2396,6 +2598,7 @@ class TestIntFlag(unittest.TestCase):
 
     def test_type(self):
         Perm = self.Perm
+        self.assertTrue(Perm._member_type_ is int)
         Open = self.Open
         for f in Perm:
             self.assertTrue(isinstance(f, Perm))
@@ -2474,6 +2677,11 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(repr(~(Open.RO | Open.CE)), '<Open.AC|RW|WO: -524289>')
         self.assertEqual(repr(~(Open.WO | Open.CE)), '<Open.RW: -524290>')
         self.assertEqual(repr(Open(~4)), '<Open.CE|AC|RW|WO: -5>')
+
+    def test_format(self):
+        Perm = self.Perm
+        self.assertEqual(format(Perm.R, ''), '4')
+        self.assertEqual(format(Perm.R | Perm.X, ''), '5')
 
     def test_or(self):
         Perm = self.Perm
@@ -2700,6 +2908,12 @@ class TestIntFlag(unittest.TestCase):
         with self.assertRaises(TypeError):
             self.assertFalse('test' in RW)
 
+    def test_member_iter(self):
+        Color = self.Color
+        self.assertEqual(list(Color.PURPLE), [Color.BLUE, Color.RED])
+        self.assertEqual(list(Color.BLUE), [Color.BLUE])
+        self.assertEqual(list(Color.GREEN), [Color.GREEN])
+
     def test_bool(self):
         Perm = self.Perm
         for f in Perm:
@@ -2751,7 +2965,7 @@ class TestIntFlag(unittest.TestCase):
         self.assertEqual(Color.ALL.value, 7)
         self.assertEqual(str(Color.BLUE), 'blue')
 
-    @support.reap_threads
+    @threading_helper.reap_threads
     def test_unique_composite(self):
         # override __eq__ to be identity only
         class TestFlag(IntFlag):
@@ -2781,7 +2995,7 @@ class TestIntFlag(unittest.TestCase):
                 threading.Thread(target=cycle_enum)
                 for _ in range(8)
                 ]
-        with support.start_threads(threads):
+        with threading_helper.start_threads(threads):
             pass
         # check that only 248 members were created
         self.assertFalse(

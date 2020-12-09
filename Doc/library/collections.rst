@@ -328,6 +328,19 @@ For example::
         instead of replacing them.  Also, the *iterable* is expected to be a
         sequence of elements, not a sequence of ``(key, value)`` pairs.
 
+Counters support rich comparison operators for equality, subset, and
+superset relationships: ``==``, ``!=``, ``<``, ``<=``, ``>``, ``>=``.
+All of those tests treat missing elements as having zero counts so that
+``Counter(a=1) == Counter(a=1, b=0)`` returns true.
+
+.. versionadded:: 3.10
+   Rich comparison operations we were added
+
+.. versionchanged:: 3.10
+   In equality tests, missing elements are treated as having zero counts.
+   Formerly, ``Counter(a=3)`` and ``Counter(a=3, b=0)`` were considered
+   distinct.
+
 Common patterns for working with :class:`Counter` objects::
 
     sum(c.values())                 # total of all counts
@@ -848,6 +861,9 @@ they add the ability to access fields by name instead of position index.
 
     Named tuple instances do not have per-instance dictionaries, so they are
     lightweight and require no more memory than regular tuples.
+
+    To support pickling, the named tuple class should be assigned to a variable
+    that matches *typename*.
 
     .. versionchanged:: 3.1
        Added support for *rename*.

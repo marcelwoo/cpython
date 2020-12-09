@@ -1,4 +1,5 @@
 #include "Python.h"
+#include "pycore_long.h"          // _PyLong_GetOne()
 #include "structmember.h"
 
 #include <ctype.h>
@@ -36,8 +37,8 @@ typedef struct {
     PyObject *key;
     PyObject *file_repr;
     PyObject *weakreflist;
-    unsigned int num_transitions;
-    unsigned int num_ttinfos;
+    size_t num_transitions;
+    size_t num_ttinfos;
     int64_t *trans_list_utc;
     int64_t *trans_list_wall[2];
     _ttinfo **trans_ttinfos;  // References to the ttinfo for each transition
@@ -117,14 +118,14 @@ ts_to_local(size_t *trans_idx, int64_t *trans_utc, long *utcoff,
 static int
 parse_tz_str(PyObject *tz_str_obj, _tzrule *out);
 
-static ssize_t
+static Py_ssize_t
 parse_abbr(const char *const p, PyObject **abbr);
-static ssize_t
+static Py_ssize_t
 parse_tz_delta(const char *const p, long *total_seconds);
-static ssize_t
+static Py_ssize_t
 parse_transition_time(const char *const p, int8_t *hour, int8_t *minute,
                       int8_t *second);
-static ssize_t
+static Py_ssize_t
 parse_transition_rule(const char *const p, TransitionRuleType **out);
 
 static _ttinfo *
@@ -224,8 +225,14 @@ error:
     self = NULL;
 cleanup:
     if (file_obj != NULL) {
+        PyObject *exc, *val, *tb;
+        PyErr_Fetch(&exc, &val, &tb);
         PyObject *tmp = PyObject_CallMethod(file_obj, "close", NULL);
-        Py_DECREF(tmp);
+        _PyErr_ChainExceptions(exc, val, tb);
+        if (tmp == NULL) {
+            Py_CLEAR(self);
+        }
+        Py_XDECREF(tmp);
         Py_DECREF(file_obj);
     }
     Py_DECREF(file_path);
@@ -278,13 +285,11 @@ zoneinfo_new(PyTypeObject *type, PyObject *args, PyObject *kw)
 
         instance =
             PyObject_CallMethod(weak_cache, "setdefault", "OO", key, tmp);
-        ((PyZoneInfo_ZoneInfo *)instance)->source = SOURCE_CACHE;
-
         Py_DECREF(tmp);
-
         if (instance == NULL) {
             return NULL;
         }
+        ((PyZoneInfo_ZoneInfo *)instance)->source = SOURCE_CACHE;
     }
 
     update_strong_cache(type, key, instance);
@@ -408,7 +413,6 @@ zoneinfo_clear_cache(PyObject *cls, PyObject *args, PyObject *kwargs)
         }
 
         clear_strong_cache(type);
-        ZONEINFO_STRONG_CACHE = NULL;
     }
     else {
         PyObject *item = NULL;
@@ -481,9 +485,7 @@ zoneinfo_tzname(PyObject *self, PyObject *dt)
     return tti->tzname;
 }
 
-#define HASTZINFO(p) (((_PyDateTime_BaseTZInfo *)(p))->hastzinfo)
-#define GET_DT_TZINFO(p) \
-    (HASTZINFO(p) ? ((PyDateTime_DateTime *)(p))->tzinfo : Py_None)
+#define GET_DT_TZINFO PyDateTime_DATE_GET_TZINFO
 
 static PyObject *
 zoneinfo_fromutc(PyObject *obj_self, PyObject *dt)
@@ -584,7 +586,7 @@ zoneinfo_fromutc(PyObject *obj_self, PyObject *dt)
             }
 
             dt = NULL;
-            if (!PyDict_SetItemString(kwargs, "fold", _PyLong_One)) {
+            if (!PyDict_SetItemString(kwargs, "fold", _PyLong_GetOne())) {
                 dt = PyObject_Call(replace, args, kwargs);
             }
 
@@ -721,17 +723,16 @@ zoneinfo__unpickle(PyTypeObject *cls, PyObject *args)
 static PyObject *
 load_timedelta(long seconds)
 {
-    PyObject *rv = NULL;
+    PyObject *rv;
     PyObject *pyoffset = PyLong_FromLong(seconds);
     if (pyoffset == NULL) {
         return NULL;
     }
-    int contains = PyDict_Contains(TIMEDELTA_CACHE, pyoffset);
-    if (contains == -1) {
-        goto error;
-    }
-
-    if (!contains) {
+    rv = PyDict_GetItemWithError(TIMEDELTA_CACHE, pyoffset);
+    if (rv == NULL) {
+        if (PyErr_Occurred()) {
+            goto error;
+        }
         PyObject *tmp = PyDateTimeAPI->Delta_FromDelta(
             0, seconds, 0, 1, PyDateTimeAPI->DeltaType);
 
@@ -742,12 +743,9 @@ load_timedelta(long seconds)
         rv = PyDict_SetDefault(TIMEDELTA_CACHE, pyoffset, tmp);
         Py_DECREF(tmp);
     }
-    else {
-        rv = PyDict_GetItem(TIMEDELTA_CACHE, pyoffset);
-    }
 
+    Py_XINCREF(rv);
     Py_DECREF(pyoffset);
-    Py_INCREF(rv);
     return rv;
 error:
     Py_DECREF(pyoffset);
@@ -891,12 +889,12 @@ load_data(PyZoneInfo_ZoneInfo *self, PyObject *file_obj)
 
     // Load the relevant sizes
     Py_ssize_t num_transitions = PyTuple_Size(trans_utc);
-    if (num_transitions == -1) {
+    if (num_transitions < 0) {
         goto error;
     }
 
     Py_ssize_t num_ttinfos = PyTuple_Size(utcoff_list);
-    if (num_ttinfos == -1) {
+    if (num_ttinfos < 0) {
         goto error;
     }
 
@@ -908,7 +906,7 @@ load_data(PyZoneInfo_ZoneInfo *self, PyObject *file_obj)
         PyMem_Malloc(self->num_transitions * sizeof(int64_t));
     trans_idx = PyMem_Malloc(self->num_transitions * sizeof(Py_ssize_t));
 
-    for (Py_ssize_t i = 0; i < self->num_transitions; ++i) {
+    for (size_t i = 0; i < self->num_transitions; ++i) {
         PyObject *num = PyTuple_GetItem(trans_utc, i);
         if (num == NULL) {
             goto error;
@@ -946,7 +944,7 @@ load_data(PyZoneInfo_ZoneInfo *self, PyObject *file_obj)
     if (utcoff == NULL || isdst == NULL) {
         goto error;
     }
-    for (Py_ssize_t i = 0; i < self->num_ttinfos; ++i) {
+    for (size_t i = 0; i < self->num_ttinfos; ++i) {
         PyObject *num = PyTuple_GetItem(utcoff_list, i);
         if (num == NULL) {
             goto error;
@@ -1457,7 +1455,9 @@ parse_tz_str(PyObject *tz_str_obj, _tzrule *out)
     PyObject *dst_abbr = NULL;
     TransitionRuleType *start = NULL;
     TransitionRuleType *end = NULL;
-    long std_offset, dst_offset;
+    // Initialize offsets to invalid value (> 24 hours)
+    long std_offset = 1 << 20;
+    long dst_offset = 1 << 20;
 
     char *tz_str = PyBytes_AsString(tz_str_obj);
     if (tz_str == NULL) {
@@ -1466,7 +1466,7 @@ parse_tz_str(PyObject *tz_str_obj, _tzrule *out)
     char *p = tz_str;
 
     // Read the `std` abbreviation, which must be at least 3 characters long.
-    ssize_t num_chars = parse_abbr(p, &std_abbr);
+    Py_ssize_t num_chars = parse_abbr(p, &std_abbr);
     if (num_chars < 1) {
         PyErr_Format(PyExc_ValueError, "Invalid STD format in %R", tz_str_obj);
         goto error;
@@ -1563,18 +1563,19 @@ error:
     return -1;
 }
 
-static ssize_t
-parse_uint(const char *const p)
+static int
+parse_uint(const char *const p, uint8_t *value)
 {
     if (!isdigit(*p)) {
         return -1;
     }
 
-    return (*p) - '0';
+    *value = (*p) - '0';
+    return 0;
 }
 
 /* Parse the STD and DST abbreviations from a TZ string. */
-static ssize_t
+static Py_ssize_t
 parse_abbr(const char *const p, PyObject **abbr)
 {
     const char *ptr = p;
@@ -1619,7 +1620,7 @@ parse_abbr(const char *const p, PyObject **abbr)
     }
 
     *abbr = PyUnicode_FromStringAndSize(str_start, str_end - str_start);
-    if (abbr == NULL) {
+    if (*abbr == NULL) {
         return -1;
     }
 
@@ -1627,7 +1628,7 @@ parse_abbr(const char *const p, PyObject **abbr)
 }
 
 /* Parse a UTC offset from a TZ str. */
-static ssize_t
+static Py_ssize_t
 parse_tz_delta(const char *const p, long *total_seconds)
 {
     // From the POSIX spec:
@@ -1710,7 +1711,7 @@ complete:
 }
 
 /* Parse the date portion of a transition rule. */
-static ssize_t
+static Py_ssize_t
 parse_transition_rule(const char *const p, TransitionRuleType **out)
 {
     // The full transition rule indicates when to change back and forth between
@@ -1737,20 +1738,18 @@ parse_transition_rule(const char *const p, TransitionRuleType **out)
     if (*ptr == 'M') {
         uint8_t month, week, day;
         ptr++;
-        ssize_t tmp = parse_uint(ptr);
-        if (tmp < 0) {
+        if (parse_uint(ptr, &month)) {
             return -1;
         }
-        month = (uint8_t)tmp;
         ptr++;
         if (*ptr != '.') {
-            tmp = parse_uint(ptr);
-            if (tmp < 0) {
+            uint8_t tmp;
+            if (parse_uint(ptr, &tmp)) {
                 return -1;
             }
 
             month *= 10;
-            month += (uint8_t)tmp;
+            month += tmp;
             ptr++;
         }
 
@@ -1761,18 +1760,15 @@ parse_transition_rule(const char *const p, TransitionRuleType **out)
             }
             ptr++;
 
-            tmp = parse_uint(ptr);
-            if (tmp < 0) {
+            if (parse_uint(ptr, values[i])) {
                 return -1;
             }
             ptr++;
-
-            *(values[i]) = tmp;
         }
 
         if (*ptr == '/') {
             ptr++;
-            ssize_t num_chars =
+            Py_ssize_t num_chars =
                 parse_transition_time(ptr, &hour, &minute, &second);
             if (num_chars < 0) {
                 return -1;
@@ -1814,7 +1810,7 @@ parse_transition_rule(const char *const p, TransitionRuleType **out)
 
         if (*ptr == '/') {
             ptr++;
-            ssize_t num_chars =
+            Py_ssize_t num_chars =
                 parse_transition_time(ptr, &hour, &minute, &second);
             if (num_chars < 0) {
                 return -1;
@@ -1838,7 +1834,7 @@ parse_transition_rule(const char *const p, TransitionRuleType **out)
 }
 
 /* Parse the time portion of a transition rule (e.g. following an /) */
-static ssize_t
+static Py_ssize_t
 parse_transition_time(const char *const p, int8_t *hour, int8_t *minute,
                       int8_t *second)
 {
@@ -1907,7 +1903,7 @@ build_tzrule(PyObject *std_abbr, PyObject *dst_abbr, long std_offset,
              long dst_offset, TransitionRuleType *start,
              TransitionRuleType *end, _tzrule *out)
 {
-    _tzrule rv = {0};
+    _tzrule rv = {{0}};
 
     rv.start = start;
     rv.end = end;
@@ -2469,10 +2465,11 @@ clear_strong_cache(const PyTypeObject *const type)
     }
 
     strong_cache_free(ZONEINFO_STRONG_CACHE);
+    ZONEINFO_STRONG_CACHE = NULL;
 }
 
 static PyObject *
-new_weak_cache()
+new_weak_cache(void)
 {
     PyObject *weakref_module = PyImport_ImportModule("weakref");
     if (weakref_module == NULL) {
@@ -2486,8 +2483,9 @@ new_weak_cache()
 }
 
 static int
-initialize_caches()
+initialize_caches(void)
 {
+    // TODO: Move to a PyModule_GetState / PEP 573 based caching system.
     if (TIMEDELTA_CACHE == NULL) {
         TIMEDELTA_CACHE = PyDict_New();
     }
@@ -2522,6 +2520,7 @@ zoneinfo_init_subclass(PyTypeObject *cls, PyObject *args, PyObject **kwargs)
     }
 
     PyObject_SetAttrString((PyObject *)cls, "_weak_cache", weak_cache);
+    Py_DECREF(weak_cache);
     Py_RETURN_NONE;
 }
 
@@ -2554,7 +2553,7 @@ static PyMethodDef zoneinfo_methods[] = {
     {"_unpickle", (PyCFunction)zoneinfo__unpickle, METH_VARARGS | METH_CLASS,
      PyDoc_STR("Private method used in unpickling.")},
     {"__init_subclass__", (PyCFunction)(void (*)(void))zoneinfo_init_subclass,
-     METH_VARARGS | METH_KEYWORDS,
+     METH_VARARGS | METH_KEYWORDS | METH_CLASS,
      PyDoc_STR("Function to initialize subclasses.")},
     {NULL} /* Sentinel */
 };
@@ -2601,18 +2600,19 @@ module_free()
 
     xdecref_ttinfo(&NO_TTINFO);
 
-    Py_XDECREF(TIMEDELTA_CACHE);
-    if (!Py_REFCNT(TIMEDELTA_CACHE)) {
-        TIMEDELTA_CACHE = NULL;
+    if (TIMEDELTA_CACHE != NULL && Py_REFCNT(TIMEDELTA_CACHE) > 1) {
+        Py_DECREF(TIMEDELTA_CACHE);
+    } else {
+        Py_CLEAR(TIMEDELTA_CACHE);
     }
 
-    Py_XDECREF(ZONEINFO_WEAK_CACHE);
-    if (!Py_REFCNT(ZONEINFO_WEAK_CACHE)) {
-        ZONEINFO_WEAK_CACHE = NULL;
+    if (ZONEINFO_WEAK_CACHE != NULL && Py_REFCNT(ZONEINFO_WEAK_CACHE) > 1) {
+        Py_DECREF(ZONEINFO_WEAK_CACHE);
+    } else {
+        Py_CLEAR(ZONEINFO_WEAK_CACHE);
     }
 
-    strong_cache_free(ZONEINFO_STRONG_CACHE);
-    ZONEINFO_STRONG_CACHE = NULL;
+    clear_strong_cache(&PyZoneInfo_ZoneInfoType);
 }
 
 static int
