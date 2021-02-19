@@ -708,7 +708,8 @@ iterations of the loop.
 
 .. opcode:: RERAISE
 
-    Re-raises the exception currently on top of the stack.
+    Re-raises the exception currently on top of the stack. If oparg is non-zero,
+    restores ``f_lasti`` of the current frame to its value when the exception was raised.
 
     .. versionadded:: 3.9
 
@@ -741,7 +742,7 @@ iterations of the loop.
 
    This opcode performs several operations before a with block starts.  First,
    it loads :meth:`~object.__exit__` from the context manager and pushes it onto
-   the stack for later use by :opcode:`WITH_CLEANUP_START`.  Then,
+   the stack for later use by :opcode:`WITH_EXCEPT_START`.  Then,
    :meth:`~object.__enter__` is called, and a finally block pointing to *delta*
    is pushed.  Finally, the result of calling the ``__enter__()`` method is pushed onto
    the stack.  The next opcode will either ignore it (:opcode:`POP_TOP`), or
