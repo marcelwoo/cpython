@@ -41,6 +41,19 @@ def _is_sunder(name):
             name[-2:-1] != '_'
             )
 
+def _is_private(cls_name, name):
+    # do not use `re` as `re` imports `enum`
+    pattern = '_%s__' % (cls_name, )
+    if (
+            len(name) >= 5
+            and name.startswith(pattern)
+            and name[len(pattern)] != '_'
+            and (name[-1] != '_' or name[-2] != '_')
+        ):
+        return True
+    else:
+        return False
+
 def _make_class_unpicklable(cls):
     """
     Make the given class un-picklable.
@@ -81,6 +94,14 @@ class _EnumDict(dict):
 
         Single underscore (sunder) names are reserved.
         """
+        if _is_private(self._cls_name, key):
+            import warnings
+            warnings.warn(
+                    "private variables, such as %r, will be normal attributes in 3.10"
+                        % (key, ),
+                    DeprecationWarning,
+                    stacklevel=2,
+                    )
         if _is_sunder(key):
             if key not in (
                     '_order_', '_create_pseudo_member_',
@@ -141,11 +162,12 @@ class EnumMeta(type):
     Metaclass for Enum
     """
     @classmethod
-    def __prepare__(metacls, cls, bases):
+    def __prepare__(metacls, cls, bases, **kwds):
         # check that previous enum members do not exist
         metacls._check_for_existing_members(cls, bases)
         # create the namespace dict
         enum_dict = _EnumDict()
+        enum_dict._cls_name = cls
         # inherit previous flags and _generate_next_value_ function
         member_type, first_enum = metacls._get_mixins_(cls, bases)
         if first_enum is not None:
@@ -154,7 +176,7 @@ class EnumMeta(type):
                     )
         return enum_dict
 
-    def __new__(metacls, cls, bases, classdict):
+    def __new__(metacls, cls, bases, classdict, **kwds):
         # an Enum class is final once enumeration items have been defined; it
         # cannot be mixed with other types (int, float, etc.) if it has an
         # inherited __new__ unless a new __new__ is defined (or the resulting
@@ -189,8 +211,7 @@ class EnumMeta(type):
         if '__doc__' not in classdict:
             classdict['__doc__'] = 'An enumeration.'
 
-        # create our new Enum type
-        enum_class = super().__new__(metacls, cls, bases, classdict)
+        enum_class = super().__new__(metacls, cls, bases, classdict, **kwds)
         enum_class._member_names_ = []               # names in definition order
         enum_class._member_map_ = {}                 # name->value map
         enum_class._member_type_ = member_type
@@ -699,7 +720,7 @@ class Enum(metaclass=EnumMeta):
                 for cls in self.__class__.mro()
                 for m in cls.__dict__
                 if m[0] != '_' and m not in self._member_map_
-                ]
+                ] + [m for m in self.__dict__ if m[0] != '_']
         return (['__class__', '__doc__', '__module__'] + added_behavior)
 
     def __format__(self, format_spec):
