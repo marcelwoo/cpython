@@ -34,7 +34,10 @@ PyAPI_FUNC(void) _PyEval_SetCoroutineOriginTrackingDepth(
 void _PyEval_Fini(void);
 
 
-extern PyObject *_PyEval_BuiltinsFromGlobals(PyObject *globals);
+extern PyObject* _PyEval_GetBuiltins(PyThreadState *tstate);
+extern PyObject *_PyEval_BuiltinsFromGlobals(
+    PyThreadState *tstate,
+    PyObject *globals);
 
 
 static inline PyObject*
@@ -58,6 +61,8 @@ extern PyStatus _PyEval_InitGIL(PyThreadState *tstate);
 extern void _PyEval_FiniGIL(PyInterpreterState *interp);
 
 extern void _PyEval_ReleaseLock(PyThreadState *tstate);
+
+extern void _PyEval_DeactivateOpCache(void);
 
 
 /* --- _Py_EnterRecursiveCall() ----------------------------------------- */

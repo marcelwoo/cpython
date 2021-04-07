@@ -5639,7 +5639,8 @@ PyTypeObject PyLong_Type = {
     0,                                          /* tp_setattro */
     0,                                          /* tp_as_buffer */
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE |
-        Py_TPFLAGS_LONG_SUBCLASS,               /* tp_flags */
+        Py_TPFLAGS_LONG_SUBCLASS |
+        _Py_TPFLAGS_MATCH_SELF,               /* tp_flags */
     long_doc,                                   /* tp_doc */
     0,                                          /* tp_traverse */
     0,                                          /* tp_clear */
@@ -5718,17 +5719,20 @@ _PyLong_Init(PyInterpreterState *interp)
 
         interp->small_ints[i] = v;
     }
+    return 0;
+}
 
-    if (_Py_IsMainInterpreter(interp)) {
-        /* initialize int_info */
-        if (Int_InfoType.tp_name == NULL) {
-            if (PyStructSequence_InitType2(&Int_InfoType, &int_info_desc) < 0) {
-                return 0;
-            }
+
+int
+_PyLong_InitTypes(void)
+{
+    /* initialize int_info */
+    if (Int_InfoType.tp_name == NULL) {
+        if (PyStructSequence_InitType2(&Int_InfoType, &int_info_desc) < 0) {
+            return -1;
         }
     }
-
-    return 1;
+    return 0;
 }
 
 void
