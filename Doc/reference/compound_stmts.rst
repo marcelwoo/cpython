@@ -533,7 +533,7 @@ The match statement is used for pattern matching.  Syntax:
    match_stmt: 'match' `subject_expr` ":" NEWLINE INDENT `case_block`+ DEDENT
    subject_expr: `star_named_expression` "," `star_named_expressions`?
                : | `named_expression`
-   case_block: 'case' `patterns` [`guard`] ':' `block`
+   case_block: 'case' `patterns` [`guard`] ":" `block`
 
 .. note::
    This section uses single quotes to denote
@@ -797,7 +797,7 @@ Syntax:
    capture_pattern: !'_' NAME
 
 A single underscore ``_`` is not a capture pattern (this is what ``!'_'``
-expresses). And is instead treated as a :token:`wildcard_pattern`.
+expresses). It is instead treated as a :token:`wildcard_pattern`.
 
 In a given pattern, a given name can only be bound once.  E.g.
 ``case x, x: ...`` is invalid while ``case [x] | x: ...`` is allowed.
@@ -820,7 +820,9 @@ and binds no name.  Syntax:
 .. productionlist:: python-grammar
    wildcard_pattern: '_'
 
-``_`` is a :ref:`soft keyword <soft-keywords>`.
+``_`` is a :ref:`soft keyword <soft-keywords>` within any pattern,
+but only within patterns.  It is an identifier, as usual, even within
+``match`` headers, ``guards``, and ``case`` blocks.
 
 In simple terms, ``_`` will always succeed.
 
@@ -861,7 +863,7 @@ emphasize the intended grouping.  Otherwise, it has no additional syntax.
 Syntax:
 
 .. productionlist:: python-grammar
-   group_pattern: '(' `pattern` ')'
+   group_pattern: "(" `pattern` ")"
 
 In simple terms ``(P)`` has the same effect as ``P``.
 
@@ -1138,7 +1140,6 @@ A function definition defines a user-defined function object (see section
           : ["->" `expression`] ":" `suite`
    decorators: `decorator`+
    decorator: "@" `assignment_expression` NEWLINE
-   dotted_name: `identifier` ("." `identifier`)*
    parameter_list: `defparameter` ("," `defparameter`)* "," "/" ["," [`parameter_list_no_posonly`]]
                  :   | `parameter_list_no_posonly`
    parameter_list_no_posonly: `defparameter` ("," `defparameter`)* ["," [`parameter_list_starargs`]]
@@ -1245,9 +1246,13 @@ following the parameter name.  Any parameter may have an annotation, even those 
 ``*identifier`` or ``**identifier``.  Functions may have "return" annotation of
 the form "``-> expression``" after the parameter list.  These annotations can be
 any valid Python expression.  The presence of annotations does not change the
-semantics of a function.  The annotation values are available as string values
-in a dictionary keyed by the parameters' names in the :attr:`__annotations__`
-attribute of the function object.
+semantics of a function.  The annotation values are available as values of
+a dictionary keyed by the parameters' names in the :attr:`__annotations__`
+attribute of the function object.  If the ``annotations`` import from
+:mod:`__future__` is used, annotations are preserved as strings at runtime which
+enables postponed evaluation.  Otherwise, they are evaluated when the function
+definition is executed.  In this case annotations may be evaluated in
+a different order than they appear in the source code.
 
 .. index:: pair: lambda; expression
 

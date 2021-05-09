@@ -20,6 +20,8 @@ typedef struct {
     PyObject *filename;
     PyObject *lineno;
     PyObject *offset;
+    PyObject *end_lineno;
+    PyObject *end_offset;
     PyObject *text;
     PyObject *print_file_and_line;
 } PySyntaxErrorObject;
@@ -61,6 +63,17 @@ typedef struct {
     PyException_HEAD
     PyObject *value;
 } PyStopIterationObject;
+
+typedef struct {
+    PyException_HEAD
+    PyObject *name;
+} PyNameErrorObject;
+
+typedef struct {
+    PyException_HEAD
+    PyObject *obj;
+    PyObject *name;
+} PyAttributeErrorObject;
 
 /* Compatibility typedefs */
 typedef PyOSErrorObject PyEnvironmentErrorObject;
@@ -137,34 +150,17 @@ PyAPI_FUNC(void) PyErr_SyntaxLocationObject(
     int lineno,
     int col_offset);
 
+PyAPI_FUNC(void) PyErr_RangedSyntaxLocationObject(
+    PyObject *filename,
+    int lineno,
+    int col_offset,
+    int end_lineno,
+    int end_col_offset);
+
 PyAPI_FUNC(PyObject *) PyErr_ProgramTextObject(
     PyObject *filename,
     int lineno);
 
-/* Create a UnicodeEncodeError object.
- *
- * TODO: This API will be removed in Python 3.11.
- */
-Py_DEPRECATED(3.3) PyAPI_FUNC(PyObject *) PyUnicodeEncodeError_Create(
-    const char *encoding,       /* UTF-8 encoded string */
-    const Py_UNICODE *object,
-    Py_ssize_t length,
-    Py_ssize_t start,
-    Py_ssize_t end,
-    const char *reason          /* UTF-8 encoded string */
-    );
-
-/* Create a UnicodeTranslateError object.
- *
- * TODO: This API will be removed in Python 3.11.
- */
-Py_DEPRECATED(3.3) PyAPI_FUNC(PyObject *) PyUnicodeTranslateError_Create(
-    const Py_UNICODE *object,
-    Py_ssize_t length,
-    Py_ssize_t start,
-    Py_ssize_t end,
-    const char *reason          /* UTF-8 encoded string */
-    );
 PyAPI_FUNC(PyObject *) _PyUnicodeTranslateError_Create(
     PyObject *object,
     Py_ssize_t start,
