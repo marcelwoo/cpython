@@ -1,6 +1,9 @@
 This is Python version 3.9.5
 ============================
 
+This is a fork, intended to run on Windows 7, for details look at `Win7.rst
+<https://github.com/NulAsh/cpython/blob/3.9.5-win7/Win7.rst>`_.
+
 .. image:: https://travis-ci.org/python/cpython.svg?branch=3.9
    :alt: CPython build status on Travis CI
    :target: https://travis-ci.org/python/cpython
