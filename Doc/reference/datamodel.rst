@@ -1015,6 +1015,39 @@ Internal types
       If a code object represents a function, the first item in :attr:`co_consts` is
       the documentation string of the function, or ``None`` if undefined.
 
+      .. method:: codeobject.co_positions()
+
+         Returns an iterable over the source code positions of each bytecode
+         instruction in the code object.
+
+         The iterator returns tuples containing the ``(start_line, end_line,
+         start_column, end_column)``. The *i-th* tuple corresponds to the
+         position of the source code that compiled to the *i-th* instruction.
+         Column information is 0-indexed utf-8 byte offsets on the given source
+         line.
+
+         This positional information can be missing. A non-exhaustive lists of
+         cases where this may happen:
+
+         - Running the interpreter with :option:`-X` ``no_debug_ranges``.
+         - Loading a pyc file compiled while using :option:`-X` ``no_debug_ranges``.
+         - Position tuples corresponding to artificial instructions.
+         - Line and column numbers that can't be represented due to
+           implementation specific limitations.
+
+         When this occurs, some or all of the tuple elements can be
+         :const:`None`.
+
+         .. versionadded:: 3.11
+
+         .. note::
+            This feature requires storing column positions in code objects which may
+            result in a small increase of disk usage of compiled Python files or
+            interpreter memory usage. To avoid storing the extra information and/or
+            deactivate printing the extra traceback information, the
+            :option:`-X` ``no_debug_ranges`` command line flag or the :envvar:`PYTHONNODEBUGRANGES`
+            environment variable can be used.
+
    .. _frame-objects:
 
    Frame objects
@@ -1036,8 +1069,9 @@ Internal types
       :attr:`f_code` is the code object being executed in this frame; :attr:`f_locals`
       is the dictionary used to look up local variables; :attr:`f_globals` is used for
       global variables; :attr:`f_builtins` is used for built-in (intrinsic) names;
-      :attr:`f_lasti` gives the precise instruction (this is an index into the
-      bytecode string of the code object).
+      :attr:`f_lasti` gives the precise instruction (it represents a wordcode index, which
+      means that to get an index into the bytecode string of the code object it needs to be
+      multiplied by 2).
 
       Accessing ``f_code`` raises an :ref:`auditing event <auditing>`
       ``object.__getattr__`` with arguments ``obj`` and ``"f_code"``.
@@ -1238,7 +1272,7 @@ Basic customization
    as necessary before returning it.
 
    If :meth:`__new__` is invoked during object construction and it returns an
-   instance or subclass of *cls*, then the new instance’s :meth:`__init__` method
+   instance of *cls*, then the new instance’s :meth:`__init__` method
    will be invoked like ``__init__(self[, ...])``, where *self* is the new instance
    and the remaining arguments are the same as were passed to the object constructor.
 
@@ -2406,7 +2440,7 @@ left undefined.
    (``+``, ``-``, ``*``, ``@``, ``/``, ``//``, ``%``, :func:`divmod`,
    :func:`pow`, ``**``, ``<<``, ``>>``, ``&``, ``^``, ``|``).  For instance, to
    evaluate the expression ``x + y``, where *x* is an instance of a class that
-   has an :meth:`__add__` method, ``x.__add__(y)`` is called.  The
+   has an :meth:`__add__` method, ``type(x).__add__(x, y)`` is called.  The
    :meth:`__divmod__` method should be the equivalent to using
    :meth:`__floordiv__` and :meth:`__mod__`; it should not be related to
    :meth:`__truediv__`.  Note that :meth:`__pow__` should be defined to accept
@@ -2442,8 +2476,9 @@ left undefined.
    (swapped) operands.  These functions are only called if the left operand does
    not support the corresponding operation [#]_ and the operands are of different
    types. [#]_ For instance, to evaluate the expression ``x - y``, where *y* is
-   an instance of a class that has an :meth:`__rsub__` method, ``y.__rsub__(x)``
-   is called if ``x.__sub__(y)`` returns *NotImplemented*.
+   an instance of a class that has an :meth:`__rsub__` method,
+   ``type(y).__rsub__(y, x)`` is called if ``type(x).__sub__(x, y)`` returns
+   *NotImplemented*.
 
    .. index:: builtin: pow
 

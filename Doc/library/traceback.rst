@@ -353,13 +353,22 @@ capture data for later printing in a lightweight fashion.
       .. versionchanged:: 3.6
          Long sequences of repeated frames are now abbreviated.
 
+   .. method:: format_frame_summary(frame_summary)
+
+      Returns a string for printing one of the frames involved in the stack.
+      This method is called for each :class:`FrameSummary` object to be
+      printed by :meth:`StackSummary.format`. If it returns ``None``, the
+      frame is omitted from the output.
+
+      .. versionadded:: 3.11
+
 
 :class:`FrameSummary` Objects
 -----------------------------
 
 .. versionadded:: 3.5
 
-:class:`FrameSummary` objects represent a single frame in a traceback.
+A :class:`FrameSummary` object represents a single frame in a traceback.
 
 .. class:: FrameSummary(filename, lineno, name, lookup_line=True, locals=None, line=None)
 
@@ -473,7 +482,7 @@ The output for the example would look similar to this:
    ['Traceback (most recent call last):\n',
     '  File "<doctest default[0]>", line 10, in <module>\n    lumberjack()\n    ^^^^^^^^^^^^\n',
     '  File "<doctest default[0]>", line 4, in lumberjack\n    bright_side_of_death()\n    ^^^^^^^^^^^^^^^^^^^^^^\n',
-    '  File "<doctest default[0]>", line 7, in bright_side_of_death\n    return tuple()[0]\n           ^^^^^^^^^^\n',
+    '  File "<doctest default[0]>", line 7, in bright_side_of_death\n    return tuple()[0]\n           ~~~~~~~^^^\n',
     'IndexError: tuple index out of range\n']
    *** extract_tb:
    [<FrameSummary file <doctest...>, line 10 in <module>>,
@@ -482,7 +491,7 @@ The output for the example would look similar to this:
    *** format_tb:
    ['  File "<doctest default[0]>", line 10, in <module>\n    lumberjack()\n    ^^^^^^^^^^^^\n',
     '  File "<doctest default[0]>", line 4, in lumberjack\n    bright_side_of_death()\n    ^^^^^^^^^^^^^^^^^^^^^^\n',
-    '  File "<doctest default[0]>", line 7, in bright_side_of_death\n    return tuple()[0]\n           ^^^^^^^^^^\n']
+    '  File "<doctest default[0]>", line 7, in bright_side_of_death\n    return tuple()[0]\n           ~~~~~~~^^^\n']
    *** tb_lineno: 10
 
 
