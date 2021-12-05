@@ -11,7 +11,7 @@ import subprocess
 import textwrap
 import linecache
 
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 from io import StringIO
 from test import support
 # This little helper class is essential for testing pdb under doctest.
@@ -1625,12 +1625,26 @@ def bœr():
         support.rmtree(module_name)
         init_file = module_name + '/__init__.py'
         os.mkdir(module_name)
-        with open(init_file, 'w') as f:
+        with open(init_file, 'w'):
             pass
         self.addCleanup(support.rmtree, module_name)
         stdout, stderr = self._run_pdb(['-m', module_name], "")
         self.assertIn("ImportError: No module named t_main.__main__",
                       stdout.splitlines())
+
+    def test_package_without_a_main(self):
+        pkg_name = 't_pkg'
+        module_name = 't_main'
+        support.rmtree(pkg_name)
+        modpath = pkg_name + '/' + module_name
+        os.makedirs(modpath)
+        with open(modpath + '/__init__.py', 'w'):
+            pass
+        self.addCleanup(support.rmtree, pkg_name)
+        stdout, stderr = self._run_pdb(['-m', modpath.replace('/', '.')], "")
+        self.assertIn(
+            "'t_pkg.t_main' is a package and cannot be directly executed",
+            stdout)
 
     def test_blocks_at_first_code_line(self):
         script = """
@@ -1837,19 +1851,20 @@ class ChecklineTests(unittest.TestCase):
         self.assertEqual(db.checkline(support.TESTFN, 1), 1)
 
     def test_checkline_is_not_executable(self):
-        with open(support.TESTFN, "w") as f:
-            # Test for comments, docstrings and empty lines
-            s = textwrap.dedent("""
-                # Comment
-                \"\"\" docstring \"\"\"
-                ''' docstring '''
+        # Test for comments, docstrings and empty lines
+        s = textwrap.dedent("""
+            # Comment
+            \"\"\" docstring \"\"\"
+            ''' docstring '''
 
-            """)
+        """)
+        with open(support.TESTFN, "w") as f:
             f.write(s)
-        db = pdb.Pdb()
         num_lines = len(s.splitlines()) + 2  # Test for EOF
-        for lineno in range(num_lines):
-            self.assertFalse(db.checkline(support.TESTFN, lineno))
+        with redirect_stdout(StringIO()):
+            db = pdb.Pdb()
+            for lineno in range(num_lines):
+                self.assertFalse(db.checkline(support.TESTFN, lineno))
 
 
 def load_tests(*args):
