@@ -1,4 +1,0 @@
-Release the GIL while performing ``isatty`` system calls on arbitrary file
-descriptors. In particular, this affects :func:`os.isatty`,
-:func:`os.device_encoding` and :class:`io.TextIOWrapper`. By extension,
-:func:`io.open` in text mode is also affected.
