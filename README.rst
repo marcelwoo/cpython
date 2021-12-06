@@ -1,6 +1,9 @@
 This is Python version 3.10.0
 =============================
 
+This is a fork, intended to run on Windows 7, for details look at `Win7.rst
+<https://github.com/NulAsh/cpython/blob/3.10.0-win7/Win7.rst>`_.
+
 .. image:: https://travis-ci.com/python/cpython.svg?branch=master
    :alt: CPython build status on Travis CI
    :target: https://travis-ci.com/python/cpython
