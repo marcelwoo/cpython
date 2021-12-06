@@ -18,7 +18,7 @@
 
       FSCTL_GET_REPARSE_POINT is not exported with WIN32_LEAN_AND_MEAN. */
 #  include <windows.h>
-#  include <pathcch.h>
+#  include "win7compat.h"
 #endif
 
 #include "pycore_ceval.h"         // _PyEval_ReInitThreads()
