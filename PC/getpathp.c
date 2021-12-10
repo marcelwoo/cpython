@@ -90,7 +90,7 @@
 #endif
 
 #include <windows.h>
-#include <pathcch.h>
+#include "win7compat.h"
 
 #ifdef HAVE_SYS_TYPES_H
 #include <sys/types.h>

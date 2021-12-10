@@ -252,6 +252,9 @@
     <ClInclude Include="..\Include\weakrefobject.h">
       <Filter>Include</Filter>
     </ClInclude>
+    <ClInclude Include="..\Include\win7compat.h">
+      <Filter>Include</Filter>
+    </ClInclude>
     <ClInclude Include="..\Modules\_math.h">
       <Filter>Modules</Filter>
     </ClInclude>
@@ -954,6 +957,9 @@
       <Filter>Parser</Filter>
     </ClCompile>
     <ClCompile Include="..\PC\winreg.c">
+      <Filter>PC</Filter>
+    </ClCompile>
+    <ClCompile Include="..\PC\win7compat.c">
       <Filter>PC</Filter>
     </ClCompile>
     <ClCompile Include="..\PC\config.c">
