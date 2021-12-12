@@ -6,6 +6,7 @@ https://bugs.python.org/issue32174
 """
 
 import re
+from os import path
 from html.entities import codepoint2name
 
 from sphinx.util.logging import getLogger
@@ -41,9 +42,9 @@ def fixup_keywords(app, exception):
     getLogger(__name__).info('fixing HTML escapes in keywords file...')
     outdir = app.builder.outdir
     outname = app.builder.config.htmlhelp_basename
-    with app.builder.open_file(outdir, outname + '.hhk', 'r') as f:
+    with open(path.join(outdir, outname + '.hhk'), 'r', encoding=app.builder.encoding, errors='xmlcharrefreplace') as f:
         index = f.read()
-    with app.builder.open_file(outdir, outname + '.hhk', 'w') as f:
+    with open(path.join(outdir, outname + '.hhk'), 'w', encoding=app.builder.encoding, errors='xmlcharrefreplace') as f:
         f.write(index.replace('&#x27;', '&#39;'))
 
 def setup(app):
